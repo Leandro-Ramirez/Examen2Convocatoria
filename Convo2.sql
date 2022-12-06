@@ -1,8 +1,15 @@
 create database CineMark
 Go
 
+Restore DataBase CineMark From Disk='D:\CineMark.bak'
+With Replace
+
 use CineMark
 Go
+
+--------------------------------------------------------------------------
+--------------------------------- Tablas ---------------------------------
+--------------------------------------------------------------------------
 
 Create Table Estado
 (
@@ -54,7 +61,7 @@ Create Table Cliente
 IdCliente Int Identity (1,1) Not Null,
 Nombre Varchar(50) Not Null,
 Apellido Varchar(50) Not Null,
-Dni Char(8) Null,
+Dni Char(8) Not Null,
 Constraint Fk_Cliente Primary Key (IdCliente)
 )
 Go
@@ -174,16 +181,22 @@ Constraint Fk_PGPromocion_Estado Foreign Key (IdEstado) References Estado(IdEsta
 )
 Go
 
-Insert Into Estado Values ('Activo')
-Insert Into Estado Values ('Inactivo')
-Insert Into Estado Values ('Ocupado')
-Insert Into Estado Values ('Libre')
-Insert Into Estado Values ('Cancelado')
+--------------------------------------------------------------------------
+---------------------------- Rellenar Tablas -----------------------------
+--------------------------------------------------------------------------
+
+Insert Into Estado Values ('Activo');
+Insert Into Estado Values ('Inactivo');
+Insert Into Estado Values ('Fuera de Servicio');
+Insert Into Estado Values ('Libre');
+Insert Into Estado Values ('Realizado');
+Insert Into Estado Values ('Cancelado');
 
 Insert Into Sala Values ('SALA 1',14,4);
 Insert Into Sala Values ('SALA 2',14,4);
 
-Insert Into Pelicula Values ('Cars2 1','01:30:00','ACCION','APTO PARA TODOS','3D',null,1);
+Insert Into Pelicula Values ('THE GAME 1','01:30:00','Accion','Apto Para Todos','3D',1);
+Insert Into Pelicula Values ('Transformers','02:30:00','Accion','Clasificacion R','3D & 2D',1);
 
 Insert Into Asiento Values (1,1,1);
 Insert Into Asiento Values (2,1,1);
@@ -230,17 +243,24 @@ Insert Into Asiento Values (12,3,1);
 Insert Into Asiento Values (13,3,1);
 Insert Into Asiento Values (14,3,1);
 
-Insert Into Cliente Values ('Jose','Calero','88888888');
+Insert Into Cliente Values ('Jose','Calero','88445577');
 
-Insert Into Cartelera Values (1,1,'18:00:00','19:30:00',CURRENT_TIMESTAMP,1);
+Insert Into Cartelera Values (1,1,'18:00:00','19:30:00',Current_TimeStamp,1);
 
-Insert Into Empleado Values ('Pedro','Sanchez',CURRENT_TIMESTAMP,1);
+Insert Into Empleado Values ('Pedro','Sanchez',Current_TimeStamp,1);
 
 Insert Into Ticket Values ('Entrada General','Entrada para las personas mayores a 18 años',10,1);
 Insert Into Ticket Values ('Entrada Niños','Entrada para los niños',5,1);
 
 Insert Into Promocion Values ('Promocion 3X2',1.0,1,1);
 Insert Into Promocion Values ('Descuento 30%',0.3,0,1);
+
+Insert Into ProGrPromocion Values (Current_TimeStamp,'Descuento 30%',2);
+Insert Into ProGrPromocion Values (Current_TimeStamp,'Descuento 3x2',1);
+
+--------------------------------------------------------------------------
+---------------------- Procedimientos de Almacenado ----------------------
+--------------------------------------------------------------------------
 
 Create Procedure SP_Programar_Pelicula
 (
@@ -256,20 +276,20 @@ Declare @UltimoDia Int,
 @DiaPrograma Date,
 @Contador Int=1
 Begin 
- Set @UltimoDia=(Select 7-( DateDiff(Day,0,GetDate())%7+1));
- Set @UltDia=(Select DateAdd(Day,@UltimoDia,GetDate()))
- Set @DiaPrograma=GetDate();
- While (@Contador<=@Duracion)
- Begin  
-   While (@DiaPrograma<=@UltDia)
-  Begin  
-   Insert Into Cartelera Values (@IdPelicula,@IdSala,@HoraInicio,@HoraFin,@DiaPrograma,1);
-   Set @DiaPrograma=(Select DateAdd(Day,1,@DiaPrograma));
-     End
-  Set @UltDia=(Select DateAdd(Day,7,@UltDia));
-    Set @Contador=@Contador+1; 
- End
+Set @UltimoDia=(Select 7-( DateDiff(Day,0,GetDate())%7+1));
+Set @UltDia=(Select DateAdd(Day,@UltimoDia,GetDate()))
+Set @DiaPrograma=GetDate();
+While (@Contador<=@Duracion)
+Begin  
+While (@DiaPrograma<=@UltDia)
+Begin  
+Insert Into Cartelera Values (@IdPelicula,@IdSala,@HoraInicio,@HoraFin,@DiaPrograma,1);
+Set @DiaPrograma=(Select DateAdd(Day,1,@DiaPrograma));
 End
+Set @UltDia=(Select DateAdd(Day,7,@UltDia));
+Set @Contador=@Contador+1; 
+End
+End;
 Go
 
 Create Procedure [dbo].[SP_Venta]
@@ -286,50 +306,50 @@ Declare @Documento Int,
 @IdRegAsiento Int,
 @DescT Decimal (19,2)
 Begin
- Begin TRY
-  Begin TRANSACTION 
-  Exec sp_xml_preparedocument @Documento OutPut, @XMLDoc;
-   Declare @PromoTemporal Table
-   (
-   id Int Identity (1,1),
-   descuento Decimal (10,2) Default 0,
-   baseticket Bit Default 0
-   ); 
-    If (Select Count(IdPGPromocion) From ProGrPromocion Where Convert(Varchar,Fecha,111)=Convert(varchar,GetDate(),111))>0
-     Insert Into @PromoTemporal Select p.Descuento,p.BaseTicket 
-     From ProGrPromocion pg 
-	 Inner Join Promocion p On p.IdPromocion=pg.IdPGPromocion 
-	 Where pg.Fecha=Convert(varchar,GetDate(),111);
+Begin Try
+Begin Transaction 
+Exec sp_xml_preparedocument @Documento OutPut, @XMLDoc;
+Declare @PromoTemporal Table
+(
+id Int Identity (1,1),
+descuento Decimal (10,2) Default 0,
+baseticket Bit Default 0
+); 
+If (Select Count(IdPGPromocion) From ProGrPromocion Where Convert(Varchar,Fecha,111)=Convert(varchar,GetDate(),111))>0
+Insert Into @PromoTemporal Select p.Descuento,p.BaseTicket 
+From ProGrPromocion pg 
+Inner Join Promocion p On p.IdPromocion=pg.IdPGPromocion 
+Where pg.Fecha=Convert(varchar,GetDate(),111);
      
-    Set @DescT =(Select descuento From @PromoTemporal);
-    Insert Into Venta 
-    Select @IdCliente,@IdCartelera,@IdEmpleado,GetDate(),Asiento,@ToPago,Promocion,@DescT,1 From OpenXML(@Documento,N'/ROOT/VENTA') 
-    With (Asiento Varchar (20),ToPago Varchar (50),Peomocion Varchar (80)) 
-    Select @IdVenta=@@Identity;
+Set @DescT =(Select descuento From @PromoTemporal);
+Insert Into Venta 
+Select @IdCliente,@IdCartelera,@IdEmpleado,GetDate(),Asiento,@ToPago,Promocion,@DescT,1 From OpenXML(@Documento,N'/ROOT/VENTA') 
+With (Asiento Varchar (20),ToPago Varchar (50),Peomocion Varchar (80)) 
+Select @IdVenta=@@Identity;
 
-    If @@Error<>0
-     RollBack
-    Else
+If @@Error<>0
+RollBack
+Else
 
-    Insert Into DetalleVenta 
-    Select @IdVenta,Descripcion,Cantidad,Precio From OpenXML(@Documento,N'/ROOT/VENTA/ITEM')
-    With (Descripcion Varchar (100),Cantidad Int,Precio Decimal (10,2));
+Insert Into DetalleVenta 
+Select @IdVenta,Descripcion,Cantidad,Precio From OpenXML(@Documento,N'/ROOT/VENTA/ITEM')
+With (Descripcion Varchar (100),Cantidad Int,Precio Decimal (10,2));
 
-     If @@Error<>0
-     RollBack
-     Else
+If @@Error<>0
+RollBack
+Else
       
-      Insert Into RegistroAsiento 
-      Select @IdVenta,@IdCartelera,NumAsiento From OpenXML(@Documento,N'/ROOT/ASIENTO')
-      With ( NumAsiento Int);
+Insert Into RegistroAsiento 
+Select @IdVenta,@IdCartelera,NumAsiento From OpenXML(@Documento,N'/ROOT/ASIENTO')
+With ( NumAsiento Int);
 
-    Commit
- End Try
- Begin Catch
-  If @@TranCount > 0
-   RollBack
- End Catch
-End
+Commit
+End Try
+Begin Catch
+If @@TranCount > 0
+RollBack
+End Catch
+End;
 Go
 
 Create Procedure SP_Programar_Promocion
@@ -357,7 +377,7 @@ End
 Set @UltDia=(Select DateAdd(Day,7,@UltDia));
 Set @Contador=@Contador+1;
 End
-End
+End;
 Go
 
 Create Procedure SP_Programacion_De_Fecha
@@ -373,8 +393,19 @@ Inner Join Pelicula p On p.IdPelicula=c.IdPelicula
 Inner Join Sala s On s.IdSala=c.IdSala
 Inner Join Estado e On e.IdEstado=c.IdEstado
 Where c.Fecha Between @FechaInicio And @FechaFin;
-End
+End;
 Go
+
+Create Procedure SP_Reporte_Del_Mes
+As
+Begin
+Select Count (*) As Contador,
+Year(Fecha) As Año,
+Month(Fecha) As Mes
+From Venta
+Group By Year(Fecha), Month(Fecha)
+Order By Year(Fecha), Month(Fecha) Asc;
+End;
 
 Create Procedure SP_Reporte_VentaCliente
 (
@@ -389,8 +420,8 @@ Inner Join Estado e On e.IdEstado=r.IdEstado
 Inner Join Cliente c On c.IdCliente=v.IdCliente
 Inner Join Pelicula p On p.IdPelicula = r.IdPelicula
 Inner Join Empleado d On d.IdEmpleado=v.IdEmpleado
-WHERE V.IDCLIENTE=@CODCLIENTE;
-END
+Where v.IdCliente=@CodCliente;
+End;
 Go
 
 Create Procedure SP_Reporte_Cartelera
@@ -406,8 +437,12 @@ From Cartelera F
 Inner Join Pelicula p On p.IdPelicula=f.IdPelicula
 Inner Join Sala s On s.IdSala=f.IdSala
 Where F.Fecha Between GetDate() And @SPelicula;
-End
+End;
 Go
+
+--------------------------------------------------------------------------
+-------------------------------- Triggers --------------------------------
+--------------------------------------------------------------------------
 
 Create Trigger T_VentaAsiento
 On RegistroAsiento
@@ -415,7 +450,9 @@ After Insert
 As
 Begin
 Insert Into AsientoCliente Select i.IdRegAsiento,v.IdCliente From inserted i 
-Inner Join Venta v on v.IdVenta=i.IdVenta;
+Inner Join Venta v on v.IdVenta=i.IdRegAsiento;
 UpDate Asiento Set IdEstado=3  From inserted i Where Asiento.IdAsiento =i.NumAsiento;
-End
+End;
 Go
+
+BackUp DataBase CineMark To Disk='D:\CineMark.bak'
